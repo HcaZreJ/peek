@@ -87,13 +87,10 @@ export function CodeView({ file }: CodeViewProps) {
                 display: 'flex',
               }}
             >
-              <span
-                className="gutter"
-                style={{ minWidth: gutterWidth, position: 'static', display: 'inline-block' }}
-              >
+              <span className="gutter" style={{ width: gutterWidth }}>
                 {vItem.index + 1}
               </span>
-              <span className="line" style={{ display: 'inline-block' }}>
+              <span className="line">
                 {tokens.map((tok, i) => (
                   <span key={i} style={tok.color ? { color: tok.color } : undefined}>
                     {tok.content}

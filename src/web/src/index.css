@@ -355,23 +355,18 @@ button:focus-visible {
   display: table-row;
 }
 .code-row .gutter {
-  display: table-cell;
+  flex: none;
   text-align: right;
-  padding: 0 14px 0 16px;
+  padding: 0 12px;
+  border-right: 1px solid var(--border);
   color: var(--fg-muted);
   user-select: none;
   white-space: nowrap;
-  vertical-align: top;
-  width: 1%;
-  background: var(--bg-content);
-  position: sticky;
-  left: 0;
 }
 .code-row .line {
-  display: table-cell;
+  flex: 1 1 auto;
   white-space: pre;
-  padding-right: 24px;
-  vertical-align: top;
+  padding: 0 24px 0 16px;
 }
 
 /* ============ 纯文本视图 ============ */
