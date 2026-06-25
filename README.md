@@ -83,4 +83,4 @@ The core logic (repo-root discovery, file-kind detection, path utilities, JSON/J
 
 ## License
 
-[MIT](./LICENSE)
+[PolyForm Noncommercial License 1.0.0](./LICENSE) — free to use, modify, and share for **noncommercial** purposes (personal use, research, education, and noncommercial organizations). **Commercial / for-profit use is not permitted.**

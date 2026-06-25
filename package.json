@@ -2,6 +2,7 @@
   "name": "peek-viewer",
   "version": "0.1.0",
   "description": "轻量化本地文件查看器：CLI 启动，浏览器专属窗口渲染代码/Markdown/JSON/JSONL",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "bin": {
     "peek": "bin/peek.mjs"
