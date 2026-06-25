@@ -356,8 +356,9 @@ button:focus-visible {
 }
 .code-row .gutter {
   flex: none;
+  box-sizing: content-box; /* width 只管数字区，padding 在外侧，避免两位数被 border-box 挤出 */
   text-align: right;
-  padding: 0 12px;
+  padding: 0 16px 0 12px;
   border-right: 1px solid var(--border);
   color: var(--fg-muted);
   user-select: none;
