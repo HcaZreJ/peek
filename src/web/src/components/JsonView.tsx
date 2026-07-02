@@ -3,7 +3,7 @@ import type { FileMeta } from '../../../shared/types';
 import { useFileText } from '../lib/useFileText';
 import { parseJsonSafe } from '../../../shared/jsonView';
 import { highlightToHtml } from '../lib/highlight';
-import { JsonNode } from './JsonNode';
+import { JsonNode, type TreeCmd } from './JsonNode';
 
 interface JsonViewProps {
   file: FileMeta;
@@ -20,8 +20,7 @@ function escapeHtml(s: string): string {
 export function JsonView({ file }: JsonViewProps) {
   const { text, truncated, loading, error } = useFileText(file.path, file.size);
   const [mode, setMode] = useState<Mode>('tree');
-  const [expandSignal, setExpandSignal] = useState(0);
-  const [collapseSignal, setCollapseSignal] = useState(0);
+  const [cmd, setCmd] = useState<TreeCmd | null>(null);
   const [sourceHtml, setSourceHtml] = useState<string | null>(null);
 
   const parsed = text === null ? null : parseJsonSafe(text);
@@ -46,6 +45,7 @@ export function JsonView({ file }: JsonViewProps) {
 
   useEffect(() => {
     setMode('tree');
+    setCmd(null);
     setSourceHtml(null);
   }, [file.path]);
 
@@ -79,8 +79,12 @@ export function JsonView({ file }: JsonViewProps) {
         </div>
         {mode === 'tree' && (
           <div className="seg">
-            <button onClick={() => setExpandSignal((n) => n + 1)}>全展开</button>
-            <button onClick={() => setCollapseSignal((n) => n + 1)}>全折叠</button>
+            <button onClick={() => setCmd((c) => ({ seq: (c?.seq ?? 0) + 1, open: true }))}>
+              全展开
+            </button>
+            <button onClick={() => setCmd((c) => ({ seq: (c?.seq ?? 0) + 1, open: false }))}>
+              全折叠
+            </button>
           </div>
         )}
       </div>
@@ -88,12 +92,7 @@ export function JsonView({ file }: JsonViewProps) {
       <div className="viewer-body">
         {mode === 'tree' ? (
           <div className="json-view">
-            <JsonNode
-              value={parsed.value}
-              depth={0}
-              expandSignal={expandSignal}
-              collapseSignal={collapseSignal}
-            />
+            <JsonNode key={file.path} value={parsed.value} depth={0} cmd={cmd} />
           </div>
         ) : sourceHtml === null ? (
           <div className="loading-line">高亮中…</div>

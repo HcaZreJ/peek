@@ -595,6 +595,16 @@ button:focus-visible {
   padding: 2px 12px 0 8px;
   color: var(--fg-muted);
   user-select: none;
+  cursor: pointer;
+}
+.jsonl-record .lineno:hover {
+  color: #fff;
+}
+.jsonl-record.bad .lineno {
+  cursor: default;
+}
+.jsonl-record.bad .lineno:hover {
+  color: var(--fg-muted);
 }
 .jsonl-record .rec-body {
   flex: 1;

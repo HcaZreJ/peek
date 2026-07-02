@@ -4,6 +4,7 @@ import type { FileMeta } from '../../../shared/types';
 import { fetchJsonl } from '../lib/api';
 import { parseJsonSafe, collectColumns, summarizeRecord } from '../../../shared/jsonView';
 import { JsonlRecord } from './JsonlRecord';
+import type { TreeCmd } from './JsonNode';
 
 interface JsonlViewProps {
   file: FileMeta;
@@ -36,6 +37,7 @@ export function JsonlView({ file }: JsonlViewProps) {
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cmd, setCmd] = useState<TreeCmd | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
 
@@ -65,6 +67,7 @@ export function JsonlView({ file }: JsonlViewProps) {
     setLines([]);
     setTotal(null);
     setError(null);
+    setCmd(null);
     loadingRef.current = false;
   }, [file.path]);
 
@@ -86,6 +89,16 @@ export function JsonlView({ file }: JsonlViewProps) {
             表格
           </button>
         </div>
+        {mode === 'stream' && (
+          <div className="seg">
+            <button onClick={() => setCmd((c) => ({ seq: (c?.seq ?? 0) + 1, open: true }))}>
+              全展开
+            </button>
+            <button onClick={() => setCmd((c) => ({ seq: (c?.seq ?? 0) + 1, open: false }))}>
+              全折叠
+            </button>
+          </div>
+        )}
         <span style={{ color: 'var(--fg-muted)', fontSize: 11 }}>
           {total === null ? '…' : `${loadedCount} / ${total} 行`}
         </span>
@@ -98,6 +111,7 @@ export function JsonlView({ file }: JsonlViewProps) {
           hasMore={hasMore}
           loading={loading}
           onLoadMore={loadNext}
+          cmd={cmd}
         />
       ) : (
         <TableView
@@ -126,7 +140,8 @@ function StreamView({
   hasMore,
   loading,
   onLoadMore,
-}: SubViewProps & { scrollRef: React.RefObject<HTMLDivElement | null> }) {
+  cmd,
+}: SubViewProps & { scrollRef: React.RefObject<HTMLDivElement | null>; cmd: TreeCmd | null }) {
   const virtualizer = useVirtualizer({
     count: lines.length,
     getScrollElement: () => scrollRef.current,
@@ -163,7 +178,7 @@ function StreamView({
                 transform: `translateY(${vItem.start}px)`,
               }}
             >
-              <JsonlRecord lineNo={vItem.index + 1} raw={ln.raw} parsed={ln.parsed} />
+              <JsonlRecord lineNo={vItem.index + 1} raw={ln.raw} parsed={ln.parsed} cmd={cmd} />
             </div>
           );
         })}

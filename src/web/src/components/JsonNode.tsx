@@ -1,4 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+/** 全局展开/折叠命令：seq 每次递增，open 表示目标状态。 */
+export interface TreeCmd {
+  seq: number;
+  open: boolean;
+}
 
 interface JsonNodeProps {
   value: unknown;
@@ -7,9 +13,8 @@ interface JsonNodeProps {
   // 是否数组索引（影响键名是否带引号渲染）。
   isArrayItem?: boolean;
   depth: number;
-  // 受控展开信号：每次 +1 表示「全展开」，-1 表示「全折叠」。
-  expandSignal: number;
-  collapseSignal: number;
+  // 最近一次全局展开/折叠命令；新挂载节点以它为初始态，seq 变化时应用。
+  cmd: TreeCmd | null;
   // 是否在尾部渲染逗号。
   trailingComma?: boolean;
 }
@@ -46,24 +51,17 @@ function KeyLabel({ nodeKey, isArrayItem }: { nodeKey?: string | number; isArray
 }
 
 /** 可折叠 JSON 树节点。对象/数组可展开收起，基本类型直接渲染。 */
-export function JsonNode({
-  value,
-  nodeKey,
-  isArrayItem,
-  depth,
-  expandSignal,
-  collapseSignal,
-  trailingComma,
-}: JsonNodeProps) {
-  // 默认根与第一层展开，更深层折叠，避免初次渲染过大。
-  const [expanded, setExpanded] = useState(depth < 1);
+export function JsonNode({ value, nodeKey, isArrayItem, depth, cmd, trailingComma }: JsonNodeProps) {
+  // 默认根与第一层展开；若已有全局命令，以命令状态为初始态（虚拟滚动重挂时保持一致）。
+  const [expanded, setExpanded] = useState(cmd ? cmd.open : depth < 1);
+  const seenSeq = useRef(cmd?.seq ?? 0);
 
   useEffect(() => {
-    if (expandSignal > 0) setExpanded(true);
-  }, [expandSignal]);
-  useEffect(() => {
-    if (collapseSignal > 0) setExpanded(false);
-  }, [collapseSignal]);
+    if (cmd && cmd.seq !== seenSeq.current) {
+      seenSeq.current = cmd.seq;
+      setExpanded(cmd.open);
+    }
+  }, [cmd]);
 
   const pad = { paddingLeft: depth * INDENT };
 
@@ -108,7 +106,10 @@ export function JsonNode({
       <div
         className="json-node json-collapsible"
         style={pad}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setExpanded((v) => !v);
+        }}
       >
         <span className="json-toggle">{expanded ? '▾' : '▸'}</span>
         <KeyLabel nodeKey={nodeKey} isArrayItem={isArrayItem} />
@@ -130,8 +131,7 @@ export function JsonNode({
               nodeKey={k}
               isArrayItem={isArray}
               depth={depth + 1}
-              expandSignal={expandSignal}
-              collapseSignal={collapseSignal}
+              cmd={cmd}
               trailingComma={idx < count - 1}
             />
           ))}
