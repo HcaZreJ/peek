@@ -3,11 +3,7 @@ import { join, dirname } from 'node:path';
 import type { RepoRootInfo } from '../shared/types';
 
 /** repo 标记，按发现优先级从高到低排列。 */
-export const REPO_MARKERS: readonly string[] = [
-  '.git', '.hg', '.svn',
-  'package.json', 'pyproject.toml', 'go.mod', 'Cargo.toml', 'pom.xml',
-  '.claude', 'README.md',
-];
+export const REPO_MARKERS: readonly string[] = ['.git', '.hg', '.svn'];
 
 /**
  * 检查单个目录中命中的**最高优先级**标记（按 REPO_MARKERS 顺序），无则 null。
@@ -26,11 +22,10 @@ export async function findMarkerInDir(dir: string): Promise<string | null> {
 }
 
 /**
- * 从 startPath 逐级向上发现 repo root（见 plan F10 契约）：
+ * 从 startPath 逐级向上发现 repo root:
  * - startPath 是文件 → 取其目录为起点
- * - 某级命中 `.git` → 立即返回该级（最近的 .git 胜出）
- * - 否则记录最近一个含任意其他标记的级为 fallback
- * - 到根仍无 → `{ repoRoot: 起点目录, marker: null }`
+ * - 某级命中任一 REPO_MARKERS 标记 → 立即返回该级
+ * - 到 fs root 仍无命中 → `{ repoRoot: 起点目录, marker: null }`
  *
  * @throws Error 带 `code: 'ENOENT'` 当 startPath 不存在
  */
@@ -38,16 +33,12 @@ export async function discoverRepoRoot(startPath: string): Promise<RepoRootInfo>
   const stats = await stat(startPath);
   const startDir = stats.isDirectory() ? startPath : dirname(startPath);
 
-  let fallback: RepoRootInfo | null = null;
   let dir = startDir;
 
   while (true) {
     const marker = await findMarkerInDir(dir);
-    if (marker === '.git') {
-      return { repoRoot: dir, marker: '.git' };
-    }
-    if (marker !== null && fallback === null) {
-      fallback = { repoRoot: dir, marker };
+    if (marker !== null) {
+      return { repoRoot: dir, marker };
     }
     const parent = dirname(dir);
     if (parent === dir) {
@@ -57,8 +48,5 @@ export async function discoverRepoRoot(startPath: string): Promise<RepoRootInfo>
     dir = parent;
   }
 
-  if (fallback !== null) {
-    return fallback;
-  }
   return { repoRoot: startDir, marker: null };
 }

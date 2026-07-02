@@ -29,14 +29,15 @@ describe('discoverRepoRoot (visible samples)', () => {
     expect(result.marker).toBe('.git');
   });
 
-  it('discoverRepoRoot_no_markers_anywhere_returns_start_with_null_marker', async () => {
+  it('discoverRepoRoot_weak_marker_does_not_pin_root_returns_null', async () => {
     /**
-     * When no markers exist anywhere in the ancestor chain,
-     * discoverRepoRoot must return the start directory with marker null.
-     * We place startPath in a subdirectory with no markers to ensure no
-     * ancestor markers are found within the sandbox.
+     * Under the new contract, package.json is no longer a marker. A tree
+     * that contains only package.json (no .git/.hg/.svn anywhere) must not
+     * be pinned there — discoverRepoRoot walks past it and, finding
+     * nothing, returns the start directory with marker null.
      */
-    const deep = join(sandbox, 'a', 'b', 'c');
+    await writeFile(join(sandbox, 'package.json'), '{}');
+    const deep = join(sandbox, 'sub', 'child');
     await mkdir(deep, { recursive: true });
     const result = await discoverRepoRoot(deep);
     const expectedRoot = await realpath(deep);
@@ -45,20 +46,18 @@ describe('discoverRepoRoot (visible samples)', () => {
     expect(result.marker).toBeNull();
   });
 
-  it('discoverRepoRoot_package_json_fallback_returned_when_no_git', async () => {
+  it('discoverRepoRoot_git_two_levels_up_walks_to_it', async () => {
     /**
-     * When a package.json exists in an ancestor but no .git exists anywhere,
-     * discoverRepoRoot must return that ancestor directory with marker 'package.json'.
-     * We place package.json at sandbox root and startPath two levels deep,
-     * with no .git anywhere.
+     * startPath is two levels below the directory holding .git.
+     * discoverRepoRoot must walk up and return that ancestor with marker '.git'.
      */
-    await writeFile(join(sandbox, 'package.json'), '{}');
-    const deep = join(sandbox, 'sub', 'child');
+    const deep = join(sandbox, 'pkg', 'lib');
     await mkdir(deep, { recursive: true });
+    await mkdir(join(sandbox, '.git'));
     const result = await discoverRepoRoot(deep);
     const expectedRoot = await realpath(sandbox);
     const actualRoot = await realpath(result.repoRoot);
     expect(actualRoot).toBe(expectedRoot);
-    expect(result.marker).toBe('package.json');
+    expect(result.marker).toBe('.git');
   });
 });

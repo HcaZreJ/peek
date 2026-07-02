@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findMarkerInDir, REPO_MARKERS } from '../../src/server/repoRoot';
@@ -15,141 +15,151 @@ describe('findMarkerInDir (hidden comprehensive)', () => {
     await rm(sandbox, { recursive: true, force: true });
   });
 
-  it('findMarkerInDir_git_file_only_returns_git', async () => {
-    /**
-     * .git as a file (e.g. a git worktree pointer) must be recognised and returned
-     * as the highest-priority marker.
-     */
-    await writeFile(join(sandbox, '.git'), 'gitdir: ../.git');
-    expect(await findMarkerInDir(sandbox)).toBe('.git');
-  });
+  // -----------------------------------------------------------------------
+  // Each of the three VCS markers hits on its own
+  // -----------------------------------------------------------------------
 
-  it('findMarkerInDir_git_directory_returns_git', async () => {
+  it('findMarkerInDir_git_directory_only_returns_git', async () => {
     /**
-     * .git as a directory (the normal case for a cloned repo) must also be recognised.
-     * The spec states markers can be files OR directories.
+     * .git as a directory (the normal case for a cloned repo) must be
+     * recognised and returned.
      */
     await mkdir(join(sandbox, '.git'));
     expect(await findMarkerInDir(sandbox)).toBe('.git');
   });
 
-  it('findMarkerInDir_package_json_only_returns_package_json', async () => {
+  it('findMarkerInDir_hg_directory_only_returns_hg', async () => {
     /**
-     * When only package.json is present (no higher-priority markers), must return 'package.json'.
+     * .hg as a directory (Mercurial) must be recognised when it is the
+     * only marker present.
      */
-    await writeFile(join(sandbox, 'package.json'), '{}');
-    expect(await findMarkerInDir(sandbox)).toBe('package.json');
+    await mkdir(join(sandbox, '.hg'));
+    expect(await findMarkerInDir(sandbox)).toBe('.hg');
   });
 
-  it('findMarkerInDir_readme_only_returns_readme', async () => {
+  it('findMarkerInDir_svn_directory_only_returns_svn', async () => {
     /**
-     * README.md is the lowest-priority marker; when it is the only marker present
-     * the function must still return it.
+     * .svn as a directory (Subversion) must be recognised when it is the
+     * only marker present.
      */
-    await writeFile(join(sandbox, 'README.md'), '# project');
-    expect(await findMarkerInDir(sandbox)).toBe('README.md');
+    await mkdir(join(sandbox, '.svn'));
+    expect(await findMarkerInDir(sandbox)).toBe('.svn');
   });
 
-  it('findMarkerInDir_claude_directory_returns_claude', async () => {
-    /**
-     * .claude as a directory must be recognised as a valid marker and returned
-     * when no higher-priority marker is present.
-     */
-    await mkdir(join(sandbox, '.claude'));
-    expect(await findMarkerInDir(sandbox)).toBe('.claude');
-  });
+  // -----------------------------------------------------------------------
+  // Marker may be a file OR a directory
+  // -----------------------------------------------------------------------
 
-  it('findMarkerInDir_git_wins_over_package_json', async () => {
+  it('findMarkerInDir_git_as_file_returns_git', async () => {
     /**
-     * When both .git and package.json are present, .git has higher priority
-     * and must be returned.
+     * .git can also be a file (git worktrees use a .git file pointing at
+     * the real gitdir). This must still be recognised as a marker.
      */
-    await writeFile(join(sandbox, '.git'), 'gitdir: ../.git');
-    await writeFile(join(sandbox, 'package.json'), '{}');
+    await writeFile(join(sandbox, '.git'), 'gitdir: ../.git/worktrees/foo');
     expect(await findMarkerInDir(sandbox)).toBe('.git');
   });
 
-  it('findMarkerInDir_package_json_wins_over_readme', async () => {
+  it('findMarkerInDir_hg_as_file_returns_hg', async () => {
     /**
-     * package.json has higher priority than README.md;
-     * when both are present, 'package.json' must be returned.
+     * Marker detection must not care whether the filesystem entry is a
+     * file or a directory — only that the name exists.
+     */
+    await writeFile(join(sandbox, '.hg'), 'not a real hg store, just a file');
+    expect(await findMarkerInDir(sandbox)).toBe('.hg');
+  });
+
+  // -----------------------------------------------------------------------
+  // Weak markers no longer count under the shrunk table
+  // -----------------------------------------------------------------------
+
+  it('findMarkerInDir_all_weak_markers_present_returns_null', async () => {
+    /**
+     * package.json, README.md, .claude, go.mod, Cargo.toml, pyproject.toml
+     * and pom.xml are no longer members of REPO_MARKERS. A directory that
+     * contains all of them but no VCS marker must yield null.
      */
     await writeFile(join(sandbox, 'package.json'), '{}');
     await writeFile(join(sandbox, 'README.md'), '# project');
-    expect(await findMarkerInDir(sandbox)).toBe('package.json');
-  });
-
-  it('findMarkerInDir_empty_dir_returns_null', async () => {
-    /**
-     * A directory with no marker files must yield null.
-     */
+    await mkdir(join(sandbox, '.claude'));
+    await writeFile(join(sandbox, 'go.mod'), 'module example.com/foo\n');
+    await writeFile(join(sandbox, 'Cargo.toml'), '[package]\nname = "foo"\n');
+    await writeFile(join(sandbox, 'pyproject.toml'), '[tool.poetry]\nname = "foo"\n');
+    await writeFile(join(sandbox, 'pom.xml'), '<project/>');
     expect(await findMarkerInDir(sandbox)).toBeNull();
   });
 
-  it('findMarkerInDir_nonexistent_dir_returns_null', async () => {
+  it('findMarkerInDir_weak_marker_ignored_when_vcs_marker_also_present', async () => {
     /**
-     * A path that does not exist on disk must return null without throwing.
+     * When a weak (no longer recognised) marker coexists with a real VCS
+     * marker, the VCS marker must still be the one returned.
      */
-    const ghost = join(sandbox, 'does-not-exist');
-    expect(await findMarkerInDir(ghost)).toBeNull();
+    await writeFile(join(sandbox, 'package.json'), '{}');
+    await mkdir(join(sandbox, '.svn'));
+    expect(await findMarkerInDir(sandbox)).toBe('.svn');
   });
 
-  it('findMarkerInDir_go_mod_only_returns_go_mod', async () => {
-    /**
-     * go.mod must be recognised as a valid marker when it is the only one present.
-     */
-    await writeFile(join(sandbox, 'go.mod'), 'module example.com/foo\n\ngo 1.21\n');
-    expect(await findMarkerInDir(sandbox)).toBe('go.mod');
-  });
+  // -----------------------------------------------------------------------
+  // Priority ordering among the three VCS markers
+  // -----------------------------------------------------------------------
 
-  it('findMarkerInDir_cargo_toml_only_returns_cargo_toml', async () => {
+  it('findMarkerInDir_git_wins_over_hg_and_svn', async () => {
     /**
-     * Cargo.toml must be recognised as a valid marker when it is the only one present.
+     * When all three VCS markers are present in the same directory, '.git'
+     * has the highest priority and must be returned.
      */
-    await writeFile(join(sandbox, 'Cargo.toml'), '[package]\nname = "foo"\n');
-    expect(await findMarkerInDir(sandbox)).toBe('Cargo.toml');
-  });
-
-  it('findMarkerInDir_pyproject_toml_only_returns_pyproject_toml', async () => {
-    /**
-     * pyproject.toml must be recognised as a valid marker when it is the only one present.
-     */
-    await writeFile(join(sandbox, 'pyproject.toml'), '[tool.poetry]\nname = "foo"\n');
-    expect(await findMarkerInDir(sandbox)).toBe('pyproject.toml');
+    await mkdir(join(sandbox, '.git'));
+    await mkdir(join(sandbox, '.hg'));
+    await mkdir(join(sandbox, '.svn'));
+    expect(await findMarkerInDir(sandbox)).toBe('.git');
   });
 
   it('findMarkerInDir_hg_wins_over_svn', async () => {
     /**
-     * .hg has higher priority than .svn; when both are present, '.hg' must be returned.
+     * When .hg and .svn are both present (no .git), '.hg' has higher
+     * priority and must be returned.
      */
     await mkdir(join(sandbox, '.hg'));
     await mkdir(join(sandbox, '.svn'));
     expect(await findMarkerInDir(sandbox)).toBe('.hg');
   });
 
-  it('findMarkerInDir_svn_only_returns_svn', async () => {
+  // -----------------------------------------------------------------------
+  // Non-existent / empty directory
+  // -----------------------------------------------------------------------
+
+  it('findMarkerInDir_empty_dir_returns_null', async () => {
     /**
-     * .svn as a directory must be recognised when no higher-priority marker is present.
+     * A directory with no marker entries must yield null.
      */
-    await mkdir(join(sandbox, '.svn'));
-    expect(await findMarkerInDir(sandbox)).toBe('.svn');
+    expect(await findMarkerInDir(sandbox)).toBeNull();
   });
 
-  it('findMarkerInDir_pom_xml_only_returns_pom_xml', async () => {
+  it('findMarkerInDir_nonexistent_dir_returns_null', async () => {
     /**
-     * pom.xml must be recognised as a valid marker when it is the only one present.
+     * A path that does not exist on disk must return null without
+     * throwing.
      */
-    await writeFile(join(sandbox, 'pom.xml'), '<project/>');
-    expect(await findMarkerInDir(sandbox)).toBe('pom.xml');
+    const ghost = join(sandbox, 'does-not-exist');
+    expect(await findMarkerInDir(ghost)).toBeNull();
   });
 
-  it('findMarkerInDir_repo_markers_export_correct_order', async () => {
+  // -----------------------------------------------------------------------
+  // REPO_MARKERS contract
+  // -----------------------------------------------------------------------
+
+  it('findMarkerInDir_repo_markers_export_equals_new_contract', async () => {
     /**
-     * REPO_MARKERS must be exported and must list markers in priority order:
-     * .git first, README.md last.
+     * REPO_MARKERS must be exactly ['.git', '.hg', '.svn'] in priority
+     * order under the new contract.
      */
-    expect(Array.isArray(REPO_MARKERS)).toBe(true);
-    expect(REPO_MARKERS[0]).toBe('.git');
-    expect(REPO_MARKERS[REPO_MARKERS.length - 1]).toBe('README.md');
+    expect(REPO_MARKERS).toEqual(['.git', '.hg', '.svn']);
+  });
+
+  it('findMarkerInDir_repo_markers_length_is_three', async () => {
+    /**
+     * The marker table must be shrunk to exactly three entries — no
+     * project-file fallbacks remain.
+     */
+    expect(REPO_MARKERS.length).toBe(3);
   });
 });

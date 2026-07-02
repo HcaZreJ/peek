@@ -17,44 +17,6 @@ describe('discoverRepoRoot (hidden comprehensive)', () => {
   });
 
   // -----------------------------------------------------------------------
-  // startPath is a FILE — must use its containing directory as start
-  // -----------------------------------------------------------------------
-
-  it('discoverRepoRoot_file_as_startpath_uses_parent_dir', async () => {
-    /**
-     * When startPath points to a file, the function must treat the file's
-     * parent directory as the starting point.  Here .git is in that parent,
-     * so it should be returned immediately.
-     */
-    await mkdir(join(sandbox, '.git'));
-    const filePath = join(sandbox, 'README.md');
-    await writeFile(filePath, '# test');
-    const result = await discoverRepoRoot(filePath);
-    const expectedRoot = await realpath(sandbox);
-    const actualRoot = await realpath(result.repoRoot);
-    expect(actualRoot).toBe(expectedRoot);
-    expect(result.marker).toBe('.git');
-  });
-
-  it('discoverRepoRoot_file_in_subdir_uses_subdir_as_start', async () => {
-    /**
-     * startPath is a file inside a subdirectory.  .git is at sandbox root.
-     * The search begins at the subdirectory, finds nothing there, then walks
-     * up one level to sandbox where .git lives.
-     */
-    const sub = join(sandbox, 'src');
-    await mkdir(sub);
-    await mkdir(join(sandbox, '.git'));
-    const filePath = join(sub, 'main.ts');
-    await writeFile(filePath, '// code');
-    const result = await discoverRepoRoot(filePath);
-    const expectedRoot = await realpath(sandbox);
-    const actualRoot = await realpath(result.repoRoot);
-    expect(actualRoot).toBe(expectedRoot);
-    expect(result.marker).toBe('.git');
-  });
-
-  // -----------------------------------------------------------------------
   // .git at the start directory itself
   // -----------------------------------------------------------------------
 
@@ -71,46 +33,15 @@ describe('discoverRepoRoot (hidden comprehensive)', () => {
     expect(result.marker).toBe('.git');
   });
 
-  it('discoverRepoRoot_git_file_at_start_counts_as_git_marker', async () => {
+  // -----------------------------------------------------------------------
+  // Nested VCS repo — the nearest one wins
+  // -----------------------------------------------------------------------
+
+  it('discoverRepoRoot_nested_git_nearest_wins_over_farther_git', async () => {
     /**
-     * .git can also be a file (worktrees).  A .git file at start level
-     * must still produce marker '.git'.
-     */
-    await writeFile(join(sandbox, '.git'), 'gitdir: ../.git/worktrees/foo');
-    const result = await discoverRepoRoot(sandbox);
-    const expectedRoot = await realpath(sandbox);
-    const actualRoot = await realpath(result.repoRoot);
-    expect(actualRoot).toBe(expectedRoot);
-    expect(result.marker).toBe('.git');
-  });
-
-  // -----------------------------------------------------------------------
-  // .git two levels up
-  // -----------------------------------------------------------------------
-
-  it('discoverRepoRoot_git_two_levels_up_walks_to_it', async () => {
-    /**
-     * startPath is two levels below sandbox root where .git lives.
-     * The function must walk up two levels and return sandbox root with '.git'.
-     */
-    const deep = join(sandbox, 'pkg', 'lib');
-    await mkdir(deep, { recursive: true });
-    await mkdir(join(sandbox, '.git'));
-    const result = await discoverRepoRoot(deep);
-    const expectedRoot = await realpath(sandbox);
-    const actualRoot = await realpath(result.repoRoot);
-    expect(actualRoot).toBe(expectedRoot);
-    expect(result.marker).toBe('.git');
-  });
-
-  // -----------------------------------------------------------------------
-  // Nearest .git wins (two .git entries at different depths)
-  // -----------------------------------------------------------------------
-
-  it('discoverRepoRoot_nearest_git_wins_over_farther_git', async () => {
-    /**
-     * .git exists both at sandbox/sub and at sandbox root.
-     * Starting from sandbox/sub/child, the nearest .git (sandbox/sub) must win.
+     * .git exists both at sandbox/sub and at sandbox root (a nested repo
+     * scenario). Starting from sandbox/sub/child, the nearest .git
+     * (sandbox/sub) must win.
      */
     const sub = join(sandbox, 'sub');
     const child = join(sub, 'child');
@@ -125,19 +56,87 @@ describe('discoverRepoRoot (hidden comprehensive)', () => {
   });
 
   // -----------------------------------------------------------------------
-  // .git globally wins over package.json that is closer
+  // .hg and .svn are recognised while walking up
   // -----------------------------------------------------------------------
 
-  it('discoverRepoRoot_git_wins_over_nearer_package_json', async () => {
+  it('discoverRepoRoot_hg_found_walking_up', async () => {
     /**
-     * package.json is closer to startPath than .git, but the spec says
-     * .git has unconditional priority — it must be returned regardless of
-     * how far up the tree it lives.
+     * No .git anywhere; a .hg directory exists two levels above startPath.
+     * discoverRepoRoot must walk up and return that ancestor with marker '.hg'.
+     */
+    const deep = join(sandbox, 'a', 'b');
+    await mkdir(deep, { recursive: true });
+    await mkdir(join(sandbox, '.hg'));
+    const result = await discoverRepoRoot(deep);
+    const expectedRoot = await realpath(sandbox);
+    const actualRoot = await realpath(result.repoRoot);
+    expect(actualRoot).toBe(expectedRoot);
+    expect(result.marker).toBe('.hg');
+  });
+
+  it('discoverRepoRoot_svn_found_walking_up', async () => {
+    /**
+     * No .git or .hg anywhere; a .svn directory exists one level above
+     * startPath. discoverRepoRoot must walk up and return that ancestor
+     * with marker '.svn'.
+     */
+    const sub = join(sandbox, 'checkout');
+    await mkdir(sub, { recursive: true });
+    await mkdir(join(sandbox, '.svn'));
+    const result = await discoverRepoRoot(sub);
+    const expectedRoot = await realpath(sandbox);
+    const actualRoot = await realpath(result.repoRoot);
+    expect(actualRoot).toBe(expectedRoot);
+    expect(result.marker).toBe('.svn');
+  });
+
+  // -----------------------------------------------------------------------
+  // Same-directory multi-marker priority
+  // -----------------------------------------------------------------------
+
+  it('discoverRepoRoot_same_dir_git_wins_over_hg', async () => {
+    /**
+     * A single directory contains both .git and .hg. The priority order
+     * defined by REPO_MARKERS ('.git' first) must decide the marker
+     * reported for that directory.
+     */
+    await mkdir(join(sandbox, '.git'));
+    await mkdir(join(sandbox, '.hg'));
+    const result = await discoverRepoRoot(sandbox);
+    const expectedRoot = await realpath(sandbox);
+    const actualRoot = await realpath(result.repoRoot);
+    expect(actualRoot).toBe(expectedRoot);
+    expect(result.marker).toBe('.git');
+  });
+
+  it('discoverRepoRoot_same_dir_hg_wins_over_svn', async () => {
+    /**
+     * A single directory contains both .hg and .svn (no .git). '.hg' has
+     * higher priority and must be reported.
+     */
+    await mkdir(join(sandbox, '.hg'));
+    await mkdir(join(sandbox, '.svn'));
+    const result = await discoverRepoRoot(sandbox);
+    const expectedRoot = await realpath(sandbox);
+    const actualRoot = await realpath(result.repoRoot);
+    expect(actualRoot).toBe(expectedRoot);
+    expect(result.marker).toBe('.hg');
+  });
+
+  // -----------------------------------------------------------------------
+  // Weak markers (package.json / README.md / .claude) no longer pin the root
+  // -----------------------------------------------------------------------
+
+  it('discoverRepoRoot_walks_past_package_json_to_find_git', async () => {
+    /**
+     * package.json sits closer to startPath than .git. Under the new
+     * contract package.json is not a marker at all, so discoverRepoRoot
+     * must walk straight past it and return the farther .git directory.
      *
      * Layout:
-     *   sandbox/            ← has .git
-     *     middle/           ← has package.json  (closer to start)
-     *       start/          ← startPath
+     *   sandbox/            <- has .git
+     *     middle/           <- has package.json (closer, but not a marker)
+     *       start/          <- startPath
      */
     const middle = join(sandbox, 'middle');
     const start = join(middle, 'start');
@@ -151,81 +150,73 @@ describe('discoverRepoRoot (hidden comprehensive)', () => {
     expect(result.marker).toBe('.git');
   });
 
-  // -----------------------------------------------------------------------
-  // Fallback markers: package.json, README.md, .claude
-  // -----------------------------------------------------------------------
-
-  it('discoverRepoRoot_no_git_package_json_fallback_returned', async () => {
+  it('discoverRepoRoot_walks_past_readme_to_find_svn', async () => {
     /**
-     * No .git anywhere in the tree.  package.json at sandbox root.
-     * startPath is a deep subdirectory.  Must return sandbox root with
-     * marker 'package.json'.
-     */
-    await writeFile(join(sandbox, 'package.json'), '{}');
-    const deep = join(sandbox, 'a', 'b');
-    await mkdir(deep, { recursive: true });
-    const result = await discoverRepoRoot(deep);
-    const expectedRoot = await realpath(sandbox);
-    const actualRoot = await realpath(result.repoRoot);
-    expect(actualRoot).toBe(expectedRoot);
-    expect(result.marker).toBe('package.json');
-  });
-
-  it('discoverRepoRoot_no_git_readme_fallback_returned', async () => {
-    /**
-     * No .git anywhere.  README.md at sandbox root.  startPath is one
-     * level below.  Must return sandbox root with marker 'README.md'.
-     */
-    await writeFile(join(sandbox, 'README.md'), '# readme');
-    const sub = join(sandbox, 'src');
-    await mkdir(sub);
-    const result = await discoverRepoRoot(sub);
-    const expectedRoot = await realpath(sandbox);
-    const actualRoot = await realpath(result.repoRoot);
-    expect(actualRoot).toBe(expectedRoot);
-    expect(result.marker).toBe('README.md');
-  });
-
-  it('discoverRepoRoot_no_git_claude_fallback_returned', async () => {
-    /**
-     * No .git anywhere.  .claude directory at sandbox root.  startPath is
-     * one level below.  Must return sandbox root with marker '.claude'.
-     */
-    await mkdir(join(sandbox, '.claude'));
-    const sub = join(sandbox, 'project');
-    await mkdir(sub);
-    const result = await discoverRepoRoot(sub);
-    const expectedRoot = await realpath(sandbox);
-    const actualRoot = await realpath(result.repoRoot);
-    expect(actualRoot).toBe(expectedRoot);
-    expect(result.marker).toBe('.claude');
-  });
-
-  // -----------------------------------------------------------------------
-  // Nearest fallback is recorded (only the first one encountered)
-  // -----------------------------------------------------------------------
-
-  it('discoverRepoRoot_nearest_fallback_wins_when_multiple_markers_no_git', async () => {
-    /**
-     * No .git anywhere.  package.json at sandbox/sub (closer to start)
-     * AND README.md at sandbox root (farther).  The nearest marker
-     * (package.json) must be the fallback returned.
+     * README.md sits closer to startPath than .svn. discoverRepoRoot must
+     * not stop at the README.md directory and instead continue up to the
+     * .svn directory.
      *
      * Layout:
-     *   sandbox/            ← has README.md
-     *     sub/              ← has package.json
-     *       start/          ← startPath
+     *   sandbox/            <- has .svn
+     *     middle/           <- has README.md (closer, but not a marker)
+     *       start/          <- startPath
      */
-    const sub = join(sandbox, 'sub');
-    const start = join(sub, 'start');
+    const middle = join(sandbox, 'middle');
+    const start = join(middle, 'start');
     await mkdir(start, { recursive: true });
-    await writeFile(join(sandbox, 'README.md'), '# readme');
-    await writeFile(join(sub, 'package.json'), '{}');
+    await mkdir(join(sandbox, '.svn'));
+    await writeFile(join(middle, 'README.md'), '# readme');
     const result = await discoverRepoRoot(start);
-    const expectedRoot = await realpath(sub);
+    const expectedRoot = await realpath(sandbox);
     const actualRoot = await realpath(result.repoRoot);
     expect(actualRoot).toBe(expectedRoot);
-    expect(result.marker).toBe('package.json');
+    expect(result.marker).toBe('.svn');
+  });
+
+  it('discoverRepoRoot_walks_past_claude_dir_to_find_git', async () => {
+    /**
+     * A .claude directory sits closer to startPath than .git. discoverRepoRoot
+     * must not treat .claude as a marker and must continue up to .git.
+     *
+     * Layout:
+     *   sandbox/            <- has .git
+     *     middle/           <- has .claude/ (closer, but not a marker)
+     *       start/          <- startPath
+     */
+    const middle = join(sandbox, 'middle');
+    const start = join(middle, 'start');
+    await mkdir(start, { recursive: true });
+    await mkdir(join(sandbox, '.git'));
+    await mkdir(join(middle, '.claude'));
+    const result = await discoverRepoRoot(start);
+    const expectedRoot = await realpath(sandbox);
+    const actualRoot = await realpath(result.repoRoot);
+    expect(actualRoot).toBe(expectedRoot);
+    expect(result.marker).toBe('.git');
+  });
+
+  it('discoverRepoRoot_only_weak_markers_in_tree_returns_start_with_null', async () => {
+    /**
+     * The whole ancestor chain contains only weak (no-longer-recognised)
+     * markers — package.json, README.md and .claude scattered across
+     * several levels — and no VCS marker anywhere. discoverRepoRoot must
+     * not pin the root at any of them; it must return the original start
+     * directory with marker null.
+     */
+    await writeFile(join(sandbox, 'package.json'), '{}');
+    const a = join(sandbox, 'a');
+    await mkdir(a);
+    await writeFile(join(a, 'README.md'), '# readme');
+    const b = join(a, 'b');
+    await mkdir(b);
+    await mkdir(join(b, '.claude'));
+    const start = join(b, 'start');
+    await mkdir(start);
+    const result = await discoverRepoRoot(start);
+    const expectedRoot = await realpath(start);
+    const actualRoot = await realpath(result.repoRoot);
+    expect(actualRoot).toBe(expectedRoot);
+    expect(result.marker).toBeNull();
   });
 
   // -----------------------------------------------------------------------
@@ -234,7 +225,7 @@ describe('discoverRepoRoot (hidden comprehensive)', () => {
 
   it('discoverRepoRoot_no_markers_at_all_returns_start_with_null', async () => {
     /**
-     * No markers anywhere.  startPath is sandbox itself with no contents.
+     * No markers anywhere. startPath is sandbox itself with no contents.
      * Must return startPath (sandbox) with marker null.
      */
     const result = await discoverRepoRoot(sandbox);
@@ -246,13 +237,54 @@ describe('discoverRepoRoot (hidden comprehensive)', () => {
 
   it('discoverRepoRoot_deep_path_no_markers_returns_start_dir_with_null', async () => {
     /**
-     * startPath is deep in the sandbox tree, but no markers exist anywhere.
-     * The start directory (the deepest dir) must be returned with null marker.
+     * startPath is deep in the sandbox tree, but no markers exist
+     * anywhere. The start directory (the deepest dir) must be returned,
+     * not any intermediate ancestor, with a null marker.
      */
     const deep = join(sandbox, 'x', 'y', 'z');
     await mkdir(deep, { recursive: true });
     const result = await discoverRepoRoot(deep);
     const expectedRoot = await realpath(deep);
+    const actualRoot = await realpath(result.repoRoot);
+    expect(actualRoot).toBe(expectedRoot);
+    expect(result.marker).toBeNull();
+  });
+
+  // -----------------------------------------------------------------------
+  // startPath is a FILE — must use its containing directory as start
+  // -----------------------------------------------------------------------
+
+  it('discoverRepoRoot_file_as_startpath_uses_parent_dir', async () => {
+    /**
+     * When startPath points to a file, the function must treat the file's
+     * parent directory as the starting point. Here .git is in that parent,
+     * so it should be returned immediately.
+     */
+    await mkdir(join(sandbox, '.git'));
+    const filePath = join(sandbox, 'README.md');
+    await writeFile(filePath, '# test');
+    const result = await discoverRepoRoot(filePath);
+    const expectedRoot = await realpath(sandbox);
+    const actualRoot = await realpath(result.repoRoot);
+    expect(actualRoot).toBe(expectedRoot);
+    expect(result.marker).toBe('.git');
+  });
+
+  it('discoverRepoRoot_file_in_subdir_with_no_markers_returns_subdir_with_null', async () => {
+    /**
+     * startPath is a file inside a subdirectory, and no VCS marker exists
+     * anywhere in the tree (only a weak README.md at sandbox root). The
+     * search must start at the file's parent directory and, finding
+     * nothing all the way up, return that parent directory with marker
+     * null.
+     */
+    const sub = join(sandbox, 'src');
+    await mkdir(sub);
+    await writeFile(join(sandbox, 'README.md'), '# readme');
+    const filePath = join(sub, 'main.ts');
+    await writeFile(filePath, '// code');
+    const result = await discoverRepoRoot(filePath);
+    const expectedRoot = await realpath(sub);
     const actualRoot = await realpath(result.repoRoot);
     expect(actualRoot).toBe(expectedRoot);
     expect(result.marker).toBeNull();
